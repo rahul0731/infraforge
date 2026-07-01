@@ -323,3 +323,20 @@ infraforge/
 | Frontend | Next.js 14, React 18, TailwindCSS 3 |
 | Orchestration | Docker Compose |
 | Infrastructure | Simulated (no real cloud provider calls) |
+
+---
+
+## Architecture Decisions & Trade-offs
+
+| Decision | Rationale | Trade-off |
+|----------|-----------|-----------|
+| **Go stdlib router** (no framework) | Zero dependencies, Go 1.22 pattern matching is sufficient | Less middleware ecosystem than Chi/Echo, but simpler to understand |
+| **Temporal for workflows** | Durable execution, built-in retries, signal-based approval gates, visibility into step state | Adds infrastructure complexity (Temporal server + worker process) |
+| **Polling (not WebSockets)** | Simpler to implement, no connection state to manage, works through proxies | Slightly higher latency (2s) and more HTTP requests than push-based |
+| **Single Postgres** for app + Temporal | Simpler local setup, fewer containers | In production you'd want separate databases |
+| **Simulated infrastructure** | Demonstrates the orchestration pattern without cloud credentials | No real resources are created — activities use `time.Sleep` |
+| **Team-scoped via headers** | Simple multi-tenancy without auth complexity | Real app would use JWT/OAuth with team claims |
+| **10% failure simulator** | Demonstrates retry behavior and failure handling realistically | Can be confusing if you don't know it's intentional |
+| **Drift as background goroutine** | Runs in the API server process, no extra deployment | In production this would be a separate scheduled Temporal workflow |
+| **Pre-trigger workflows on create/update** | User sees immediate feedback without manual "Deploy" click | Couples environment CRUD tightly to workflow orchestration |
+
