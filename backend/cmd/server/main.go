@@ -9,8 +9,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/infraforge/infraforge/internal/api"
 	"github.com/infraforge/infraforge/internal/config"
 	"github.com/infraforge/infraforge/internal/db"
+	"github.com/infraforge/infraforge/internal/repository"
 )
 
 func main() {
@@ -26,17 +28,52 @@ func main() {
 	defer pool.Close()
 	log.Println("Connected to PostgreSQL")
 
-	// Set up HTTP server
+	// Initialize repositories
+	teamRepo := repository.NewTeamRepository(pool)
+	envRepo := repository.NewEnvironmentRepository(pool)
+	workflowRepo := repository.NewWorkflowRepository(pool)
+	approvalRepo := repository.NewApprovalRepository(pool)
+	driftRepo := repository.NewDriftRepository(pool)
+	auditRepo := repository.NewAuditRepository(pool)
+	dashboardRepo := repository.NewDashboardRepository(pool)
+
+	// Initialize handlers
+	teamHandler := api.NewTeamHandler(teamRepo, auditRepo)
+	envHandler := api.NewEnvironmentHandler(envRepo, auditRepo)
+	workflowHandler := api.NewWorkflowHandler(workflowRepo, auditRepo)
+	approvalHandler := api.NewApprovalHandler(approvalRepo, auditRepo)
+	driftHandler := api.NewDriftHandler(driftRepo, auditRepo)
+	auditHandler := api.NewAuditHandler(auditRepo)
+	dashboardHandler := api.NewDashboardHandler(dashboardRepo)
+
+	// Set up router
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+
+	// Health check
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"healthy"}`))
+		_, _ = w.Write([]byte(`{"status":"healthy","service":"infraforge"}`))
 	})
+
+	// Register API routes
+	teamHandler.Register(mux)
+	envHandler.Register(mux)
+	workflowHandler.Register(mux)
+	approvalHandler.Register(mux)
+	driftHandler.Register(mux)
+	auditHandler.Register(mux)
+	dashboardHandler.Register(mux)
+
+	// Apply middleware
+	handler := api.Chain(mux,
+		api.CORS("*"),
+		api.Logger,
+	)
 
 	server := &http.Server{
 		Addr:         cfg.Server.Address(),
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

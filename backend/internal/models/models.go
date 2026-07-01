@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,9 +24,9 @@ type Environment struct {
 	Name      string    `json:"name" db:"name"`
 	Slug      string    `json:"slug" db:"slug"`
 	Provider  string    `json:"provider" db:"provider"` // aws, gcp, azure, k8s
-	Region    *string   `json:"region,omitempty" db:"region"`
-	Config    []byte    `json:"config" db:"config"` // JSONB
-	Status    string    `json:"status" db:"status"`
+	Region    *string          `json:"region,omitempty" db:"region"`
+	Config    json.RawMessage  `json:"config" db:"config"` // JSONB
+	Status    string           `json:"status" db:"status"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -57,8 +58,8 @@ type WorkflowStep struct {
 	StepOrder    int        `json:"step_order" db:"step_order"`
 	StepType     string     `json:"step_type" db:"step_type"` // plan, apply, approve, notify, validate
 	Status       string     `json:"status" db:"status"`       // pending, running, completed, failed, skipped
-	Input        []byte     `json:"input" db:"input"`         // JSONB
-	Output       []byte     `json:"output" db:"output"`       // JSONB
+	Input        json.RawMessage `json:"input" db:"input"`         // JSONB
+	Output       json.RawMessage `json:"output" db:"output"`       // JSONB
 	ErrorMessage *string    `json:"error_message,omitempty" db:"error_message"`
 	StartedAt    *time.Time `json:"started_at,omitempty" db:"started_at"`
 	CompletedAt  *time.Time `json:"completed_at,omitempty" db:"completed_at"`
@@ -89,7 +90,7 @@ type AuditLog struct {
 	Action       string     `json:"action" db:"action"`
 	ResourceType string     `json:"resource_type" db:"resource_type"`
 	ResourceID   *uuid.UUID `json:"resource_id,omitempty" db:"resource_id"`
-	Details      []byte     `json:"details" db:"details"` // JSONB
+	Details      json.RawMessage `json:"details" db:"details"` // JSONB
 	IPAddress    *string    `json:"ip_address,omitempty" db:"ip_address"`
 	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
 }
@@ -101,8 +102,8 @@ type DriftRecord struct {
 	WorkflowID     *uuid.UUID `json:"workflow_id,omitempty" db:"workflow_id"`
 	ResourceType   string     `json:"resource_type" db:"resource_type"`
 	ResourceID     string     `json:"resource_id" db:"resource_id"`
-	ExpectedState  []byte     `json:"expected_state" db:"expected_state"` // JSONB
-	ActualState    []byte     `json:"actual_state" db:"actual_state"`     // JSONB
+	ExpectedState  json.RawMessage `json:"expected_state" db:"expected_state"` // JSONB
+	ActualState    json.RawMessage `json:"actual_state" db:"actual_state"`     // JSONB
 	DriftDetectedAt time.Time `json:"drift_detected_at" db:"drift_detected_at"`
 	ResolvedAt     *time.Time `json:"resolved_at,omitempty" db:"resolved_at"`
 	Resolution     *string    `json:"resolution,omitempty" db:"resolution"` // auto_remediated, manual_fix, accepted, ignored
