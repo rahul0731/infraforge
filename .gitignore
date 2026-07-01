@@ -1,0 +1,41 @@
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+backend/vendor/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Database
+postgres_data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+docker-data/
+
+# Temporal
+temporal-data/
+
+# Logs
+*.log
+
+# Test coverage
+coverage.out
+coverage.html
