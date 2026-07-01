@@ -138,3 +138,18 @@ func (r *WorkflowRepository) CountByTeam(ctx context.Context, teamID uuid.UUID) 
 	).Scan(&count)
 	return count, err
 }
+
+// SetTemporalIDs stores the Temporal workflow and run IDs.
+func (r *WorkflowRepository) SetTemporalIDs(ctx context.Context, id uuid.UUID, temporalWfID, runID string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE workflows SET temporal_workflow_id = $1, temporal_run_id = $2, updated_at = NOW() WHERE id = $3`,
+		temporalWfID, runID, id,
+	)
+	return err
+}
+
+// DeleteSteps removes all steps for a workflow (used before retry).
+func (r *WorkflowRepository) DeleteSteps(ctx context.Context, workflowID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM workflow_steps WHERE workflow_id = $1`, workflowID)
+	return err
+}

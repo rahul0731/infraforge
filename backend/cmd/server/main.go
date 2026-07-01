@@ -9,10 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"go.temporal.io/sdk/client"
+
 	"github.com/infraforge/infraforge/internal/api"
 	"github.com/infraforge/infraforge/internal/config"
 	"github.com/infraforge/infraforge/internal/db"
 	"github.com/infraforge/infraforge/internal/repository"
+	infraTemporal "github.com/infraforge/infraforge/internal/temporal"
 )
 
 func main() {
@@ -28,6 +31,17 @@ func main() {
 	defer pool.Close()
 	log.Println("Connected to PostgreSQL")
 
+	// Connect to Temporal (non-fatal if unavailable)
+	var temporalClient client.Client
+	tc, err := infraTemporal.NewClient(&cfg.Temporal)
+	if err != nil {
+		log.Printf("WARNING: Temporal unavailable (%v) - workflow features disabled", err)
+	} else {
+		temporalClient = tc
+		defer temporalClient.Close()
+		log.Println("Connected to Temporal")
+	}
+
 	// Initialize repositories
 	teamRepo := repository.NewTeamRepository(pool)
 	envRepo := repository.NewEnvironmentRepository(pool)
@@ -40,8 +54,8 @@ func main() {
 	// Initialize handlers
 	teamHandler := api.NewTeamHandler(teamRepo, auditRepo)
 	envHandler := api.NewEnvironmentHandler(envRepo, auditRepo)
-	workflowHandler := api.NewWorkflowHandler(workflowRepo, auditRepo)
-	approvalHandler := api.NewApprovalHandler(approvalRepo, auditRepo)
+	workflowHandler := api.NewWorkflowHandler(workflowRepo, envRepo, auditRepo, temporalClient)
+	approvalHandler := api.NewApprovalHandler(approvalRepo, workflowRepo, auditRepo, temporalClient)
 	driftHandler := api.NewDriftHandler(driftRepo, auditRepo)
 	auditHandler := api.NewAuditHandler(auditRepo)
 	dashboardHandler := api.NewDashboardHandler(dashboardRepo)
@@ -53,7 +67,11 @@ func main() {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"healthy","service":"infraforge"}`))
+		temporalStatus := "disconnected"
+		if temporalClient != nil {
+			temporalStatus = "connected"
+		}
+		_, _ = w.Write([]byte(`{"status":"healthy","service":"infraforge","temporal":"` + temporalStatus + `"}`))
 	})
 
 	// Register API routes

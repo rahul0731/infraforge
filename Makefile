@@ -21,10 +21,14 @@ logs-temporal: ## Tail Temporal logs
 
 # Backend
 build: ## Build the Go backend
-	cd backend && go build -o ../bin/infraforge ./cmd/server
+	cd backend && go build -o ../bin/infraforge-server ./cmd/server
+	cd backend && go build -o ../bin/infraforge-worker ./cmd/worker
 
-run: ## Run the Go backend locally
+run: ## Run the Go API server locally
 	cd backend && go run ./cmd/server
+
+worker: ## Run the Temporal worker locally
+	cd backend && go run ./cmd/worker
 
 tidy: ## Tidy Go modules
 	cd backend && go mod tidy
