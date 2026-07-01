@@ -101,3 +101,33 @@ func (r *ApprovalRepository) Decide(ctx context.Context, id uuid.UUID, status st
 	}
 	return nil
 }
+
+// ListAll returns all approvals (for decision history), ordered by most recent first.
+func (r *ApprovalRepository) ListAll(ctx context.Context, limit int) ([]models.Approval, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	query := `SELECT id, workflow_id, workflow_step_id, requested_by, assigned_to, status,
+		decision_reason, decided_at, expires_at, created_at, updated_at
+		FROM approvals ORDER BY created_at DESC LIMIT $1`
+
+	rows, err := r.pool.Query(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing all approvals: %w", err)
+	}
+	defer rows.Close()
+
+	var approvals []models.Approval
+	for rows.Next() {
+		var a models.Approval
+		if err := rows.Scan(
+			&a.ID, &a.WorkflowID, &a.WorkflowStepID, &a.RequestedBy, &a.AssignedTo,
+			&a.Status, &a.DecisionReason, &a.DecidedAt, &a.ExpiresAt, &a.CreatedAt, &a.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning approval: %w", err)
+		}
+		approvals = append(approvals, a)
+	}
+	return approvals, nil
+}

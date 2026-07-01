@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { fetchWorkflows, fetchTeams } from "@/lib/api";
+import { fetchWorkflows, fetchTeams, retryWorkflow } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import Link from "next/link";
 
@@ -8,6 +8,7 @@ export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<any[]>([]);
   const [teamId, setTeamId] = useState("");
   const [filter, setFilter] = useState("");
+  const [retryingId, setRetryingId] = useState("");
 
   useEffect(() => {
     fetchTeams().then((t) => { if (t?.length) setTeamId(t[0].id); });
@@ -15,11 +16,19 @@ export default function WorkflowsPage() {
 
   useEffect(() => {
     if (!teamId) return;
-    const load = () => fetchWorkflows(teamId, filter).then(setWorkflows).catch(console.error);
+    const load = () => fetchWorkflows(teamId, filter).then((data) => setWorkflows(data || [])).catch(console.error);
     load();
     const interval = setInterval(load, 3000);
     return () => clearInterval(interval);
   }, [teamId, filter]);
+
+  const handleRetry = async (e: React.MouseEvent, wfId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setRetryingId(wfId);
+    try { await retryWorkflow(wfId); } catch (err) { console.error(err); }
+    setRetryingId("");
+  };
 
   return (
     <div className="space-y-6">
@@ -41,21 +50,28 @@ export default function WorkflowsPage() {
 
       <div className="space-y-3">
         {workflows.map((wf) => (
-          <Link
-            key={wf.id}
-            href={`/workflows/${wf.id}`}
-            className="block bg-dark-card border border-dark-border rounded-xl p-4 hover:border-dark-accent/50 transition-colors"
-          >
+          <div key={wf.id} className="bg-dark-card border border-dark-border rounded-xl p-4 hover:border-dark-accent/50 transition-colors">
             <div className="flex items-center justify-between">
-              <div>
+              <Link href={`/workflows/${wf.id}`} className="flex-1">
                 <p className="font-medium">{wf.name}</p>
                 <p className="text-sm text-dark-muted mt-1">
                   {wf.workflow_type} · by {wf.initiated_by} · {new Date(wf.created_at).toLocaleString()}
                 </p>
+              </Link>
+              <div className="flex items-center gap-3">
+                {(wf.status === "failed" || wf.status === "cancelled") && (
+                  <button
+                    onClick={(e) => handleRetry(e, wf.id)}
+                    disabled={retryingId === wf.id}
+                    className="px-3 py-1.5 bg-dark-accent text-white rounded-lg text-xs hover:bg-indigo-600 disabled:opacity-50"
+                  >
+                    {retryingId === wf.id ? "..." : "Retry"}
+                  </button>
+                )}
+                <StatusBadge status={wf.status} />
               </div>
-              <StatusBadge status={wf.status} />
             </div>
-          </Link>
+          </div>
         ))}
         {workflows.length === 0 && (
           <p className="text-dark-muted text-center py-10">No workflows found.</p>

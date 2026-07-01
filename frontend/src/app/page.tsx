@@ -23,7 +23,7 @@ export default function Dashboard() {
     if (!teamId) return;
     const load = () => {
       fetchDashboardStats(teamId).then(setStats).catch(console.error);
-      fetchEnvironments(teamId).then(setEnvironments).catch(console.error);
+      fetchEnvironments(teamId).then((data) => setEnvironments(data || [])).catch(console.error);
     };
     load();
     const interval = setInterval(load, 5000);
@@ -47,16 +47,16 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Environments" value={stats.total_environments} icon="🌍" />
-        <StatCard label="Active Workflows" value={stats.active_workflows} icon="⚙️" color="text-blue-400" />
-        <StatCard label="Pending Approvals" value={stats.pending_approvals} icon="⏳" color="text-yellow-400" />
-        <StatCard label="Unresolved Drifts" value={stats.unresolved_drifts} icon="🔀" color="text-red-400" />
+        <StatCard label="Environments" value={stats.total_environments} />
+        <StatCard label="Active Workflows" value={stats.active_workflows} color="text-blue-400" />
+        <StatCard label="Pending Approvals" value={stats.pending_approvals} color="text-yellow-400" />
+        <StatCard label="Unresolved Drifts" value={stats.unresolved_drifts} color="text-red-400" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <StatCard label="Completed Workflows" value={stats.completed_workflows} icon="✅" color="text-emerald-400" />
-        <StatCard label="Failed Workflows" value={stats.failed_workflows} icon="❌" color="text-red-400" />
-        <StatCard label="Critical Drifts" value={stats.critical_drifts} icon="🚨" color="text-red-500" />
+        <StatCard label="Completed Workflows" value={stats.completed_workflows} color="text-emerald-400" />
+        <StatCard label="Failed Workflows" value={stats.failed_workflows} color="text-red-400" />
+        <StatCard label="Critical Drifts" value={stats.critical_drifts} color="text-red-500" />
       </div>
 
       <div className="bg-dark-card border border-dark-border rounded-xl p-5">

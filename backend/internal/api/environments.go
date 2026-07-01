@@ -2,26 +2,44 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/client"
 
 	"github.com/infraforge/infraforge/internal/models"
 	"github.com/infraforge/infraforge/internal/repository"
+	infraTemporal "github.com/infraforge/infraforge/internal/temporal"
 )
 
 const maxEnvironmentsPerTeam = 20
 
 // EnvironmentHandler handles environment API endpoints.
 type EnvironmentHandler struct {
-	envs  *repository.EnvironmentRepository
-	audit *repository.AuditRepository
+	envs           *repository.EnvironmentRepository
+	workflows      *repository.WorkflowRepository
+	drifts         *repository.DriftRepository
+	audit          *repository.AuditRepository
+	temporalClient client.Client
 }
 
 // NewEnvironmentHandler creates a new EnvironmentHandler.
-func NewEnvironmentHandler(envs *repository.EnvironmentRepository, audit *repository.AuditRepository) *EnvironmentHandler {
-	return &EnvironmentHandler{envs: envs, audit: audit}
+func NewEnvironmentHandler(
+	envs *repository.EnvironmentRepository,
+	workflows *repository.WorkflowRepository,
+	drifts *repository.DriftRepository,
+	audit *repository.AuditRepository,
+	temporalClient client.Client,
+) *EnvironmentHandler {
+	return &EnvironmentHandler{
+		envs:           envs,
+		workflows:      workflows,
+		drifts:         drifts,
+		audit:          audit,
+		temporalClient: temporalClient,
+	}
 }
 
 // Register mounts environment routes on the given mux.
@@ -31,6 +49,7 @@ func (h *EnvironmentHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/environments/{id}", h.Get)
 	mux.HandleFunc("PUT /api/v1/environments/{id}", h.Update)
 	mux.HandleFunc("DELETE /api/v1/environments/{id}", h.Delete)
+	mux.HandleFunc("POST /api/v1/environments/{id}/decommission", h.Decommission)
 }
 
 func (h *EnvironmentHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +120,7 @@ func (h *EnvironmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Provider: req.Provider,
 		Region:   req.Region,
 		Config:   config,
-		Status:   "active",
+		Status:   "provisioning",
 	}
 
 	if err := h.envs.Create(r.Context(), env); err != nil {
@@ -117,7 +136,72 @@ func (h *EnvironmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.audit.LogAction(r.Context(), &teamID, actor, "environment.created", "environment", &env.ID,
 		map[string]string{"name": env.Name, "provider": env.Provider})
 
-	JSON(w, http.StatusCreated, env)
+	// Auto-trigger Provision workflow
+	provisionWf := h.triggerProvision(r, env, actor)
+
+	response := map[string]interface{}{
+		"environment": env,
+		"workflow":    provisionWf,
+	}
+	JSON(w, http.StatusCreated, response)
+}
+
+// triggerProvision creates a workflow record and starts it in Temporal.
+func (h *EnvironmentHandler) triggerProvision(r *http.Request, env *models.Environment, actor string) *models.Workflow {
+	wf := &models.Workflow{
+		TeamID:        env.TeamID,
+		EnvironmentID: &env.ID,
+		Name:          fmt.Sprintf("Provision: %s", env.Name),
+		WorkflowType:  "provision",
+		Status:        "pending",
+		InitiatedBy:   actor,
+	}
+
+	if err := h.workflows.Create(r.Context(), wf); err != nil {
+		return nil
+	}
+
+	// Build config from environment
+	var configMap map[string]interface{}
+	_ = json.Unmarshal(env.Config, &configMap)
+	if configMap == nil {
+		configMap = make(map[string]interface{})
+	}
+	configMap["provider"] = env.Provider
+	configMap["slug"] = env.Slug
+	if env.Slug == "prod" || env.Slug == "production" || configMap["tier"] == "production" {
+		configMap["is_production"] = true
+	}
+	configMap["initiated_by"] = actor
+	configMap["environment_name"] = env.Name
+
+	// Start in Temporal
+	if h.temporalClient != nil {
+		params := infraTemporal.WorkflowParams{
+			WorkflowID:    wf.ID.String(),
+			TeamID:        env.TeamID.String(),
+			EnvironmentID: env.ID.String(),
+			Config:        configMap,
+		}
+
+		runID, err := infraTemporal.StartProvisionWorkflow(r.Context(), h.temporalClient, params)
+		if err == nil {
+			temporalWfID := "provision-" + wf.ID.String()
+			_ = h.workflows.SetTemporalIDs(r.Context(), wf.ID, temporalWfID, runID)
+			wf.TemporalWorkflowID = &temporalWfID
+			wf.TemporalRunID = &runID
+		} else {
+			errMsg := err.Error()
+			_ = h.workflows.UpdateStatus(r.Context(), wf.ID, "failed", &errMsg)
+			wf.Status = "failed"
+			wf.ErrorMessage = &errMsg
+		}
+	}
+
+	h.audit.LogAction(r.Context(), &env.TeamID, actor, "workflow.created", "workflow", &wf.ID,
+		map[string]string{"name": wf.Name, "type": "provision", "trigger": "auto"})
+
+	return wf
 }
 
 func (h *EnvironmentHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +273,156 @@ func (h *EnvironmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	h.audit.LogAction(r.Context(), &existing.TeamID, actor, "environment.updated", "environment", &id,
 		map[string]string{"name": existing.Name})
 
-	JSON(w, http.StatusOK, existing)
+	// Auto-resolve any drift records for this environment (config was updated)
+	_ = h.drifts.ResolveAllByEnvironment(r.Context(), id, "manual_fix")
+
+	// Auto-trigger Update workflow
+	updateWf := h.triggerUpdate(r, existing, actor)
+
+	response := map[string]interface{}{
+		"environment": existing,
+		"workflow":    updateWf,
+	}
+	JSON(w, http.StatusOK, response)
+}
+
+// triggerUpdate creates an Update workflow and starts it in Temporal.
+func (h *EnvironmentHandler) triggerUpdate(r *http.Request, env *models.Environment, actor string) *models.Workflow {
+	wf := &models.Workflow{
+		TeamID:        env.TeamID,
+		EnvironmentID: &env.ID,
+		Name:          fmt.Sprintf("Update: %s", env.Name),
+		WorkflowType:  "deploy",
+		Status:        "pending",
+		InitiatedBy:   actor,
+	}
+
+	if err := h.workflows.Create(r.Context(), wf); err != nil {
+		return nil
+	}
+
+	var configMap map[string]interface{}
+	_ = json.Unmarshal(env.Config, &configMap)
+	if configMap == nil {
+		configMap = make(map[string]interface{})
+	}
+	configMap["provider"] = env.Provider
+	configMap["slug"] = env.Slug
+	configMap["initiated_by"] = actor
+	configMap["environment_name"] = env.Name
+
+	if h.temporalClient != nil {
+		params := infraTemporal.WorkflowParams{
+			WorkflowID:    wf.ID.String(),
+			TeamID:        env.TeamID.String(),
+			EnvironmentID: env.ID.String(),
+			Config:        configMap,
+		}
+
+		runID, err := infraTemporal.StartUpdateWorkflow(r.Context(), h.temporalClient, params)
+		if err == nil {
+			temporalWfID := "update-" + wf.ID.String()
+			_ = h.workflows.SetTemporalIDs(r.Context(), wf.ID, temporalWfID, runID)
+			wf.TemporalWorkflowID = &temporalWfID
+			wf.TemporalRunID = &runID
+		} else {
+			errMsg := err.Error()
+			_ = h.workflows.UpdateStatus(r.Context(), wf.ID, "failed", &errMsg)
+			wf.Status = "failed"
+			wf.ErrorMessage = &errMsg
+		}
+	}
+
+	h.audit.LogAction(r.Context(), &env.TeamID, actor, "workflow.created", "workflow", &wf.ID,
+		map[string]string{"name": wf.Name, "type": "deploy", "trigger": "auto"})
+
+	return wf
+}
+
+func (h *EnvironmentHandler) Decommission(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid environment ID")
+		return
+	}
+
+	env, err := h.envs.GetByID(r.Context(), id)
+	if err != nil {
+		Error(w, http.StatusNotFound, "environment not found")
+		return
+	}
+
+	if env.Status == "decommissioned" {
+		Error(w, http.StatusBadRequest, "environment is already decommissioned")
+		return
+	}
+
+	// Mark as decommissioning
+	env.Status = "decommissioning"
+	_ = h.envs.Update(r.Context(), env)
+
+	// Auto-resolve all drift records for this environment
+	_ = h.drifts.ResolveAllByEnvironment(r.Context(), id, "auto_remediated")
+
+	actor := GetActor(r)
+	h.audit.LogAction(r.Context(), &env.TeamID, actor, "environment.decommission_started", "environment", &id,
+		map[string]string{"name": env.Name})
+
+	// Trigger Decommission workflow
+	wf := &models.Workflow{
+		TeamID:        env.TeamID,
+		EnvironmentID: &env.ID,
+		Name:          fmt.Sprintf("Decommission: %s", env.Name),
+		WorkflowType:  "destroy",
+		Status:        "pending",
+		InitiatedBy:   actor,
+	}
+
+	if err := h.workflows.Create(r.Context(), wf); err != nil {
+		Error(w, http.StatusInternalServerError, "failed to create decommission workflow")
+		return
+	}
+
+	var configMap map[string]interface{}
+	_ = json.Unmarshal(env.Config, &configMap)
+	if configMap == nil {
+		configMap = make(map[string]interface{})
+	}
+	configMap["provider"] = env.Provider
+	configMap["slug"] = env.Slug
+	configMap["initiated_by"] = actor
+	configMap["environment_name"] = env.Name
+
+	if h.temporalClient != nil {
+		params := infraTemporal.WorkflowParams{
+			WorkflowID:    wf.ID.String(),
+			TeamID:        env.TeamID.String(),
+			EnvironmentID: env.ID.String(),
+			Config:        configMap,
+		}
+
+		runID, err := infraTemporal.StartDecommissionWorkflow(r.Context(), h.temporalClient, params)
+		if err == nil {
+			temporalWfID := "decommission-" + wf.ID.String()
+			_ = h.workflows.SetTemporalIDs(r.Context(), wf.ID, temporalWfID, runID)
+			wf.TemporalWorkflowID = &temporalWfID
+			wf.TemporalRunID = &runID
+		} else {
+			errMsg := err.Error()
+			_ = h.workflows.UpdateStatus(r.Context(), wf.ID, "failed", &errMsg)
+			wf.Status = "failed"
+			wf.ErrorMessage = &errMsg
+		}
+	}
+
+	h.audit.LogAction(r.Context(), &env.TeamID, actor, "workflow.created", "workflow", &wf.ID,
+		map[string]string{"name": wf.Name, "type": "destroy", "trigger": "decommission"})
+
+	response := map[string]interface{}{
+		"environment": env,
+		"workflow":    wf,
+	}
+	JSON(w, http.StatusOK, response)
 }
 
 func (h *EnvironmentHandler) Delete(w http.ResponseWriter, r *http.Request) {

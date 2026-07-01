@@ -4,6 +4,8 @@ const statusColors: Record<string, string> = {
   approved: "bg-emerald-500/20 text-emerald-400",
   running: "bg-blue-500/20 text-blue-400",
   pending: "bg-yellow-500/20 text-yellow-400",
+  provisioning: "bg-blue-500/20 text-blue-400",
+  decommissioning: "bg-orange-500/20 text-orange-400",
   failed: "bg-red-500/20 text-red-400",
   cancelled: "bg-gray-500/20 text-gray-400",
   rejected: "bg-red-500/20 text-red-400",

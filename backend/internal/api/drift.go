@@ -31,8 +31,16 @@ func (h *DriftHandler) Register(mux *http.ServeMux) {
 
 func (h *DriftHandler) List(w http.ResponseWriter, r *http.Request) {
 	envIDStr := r.URL.Query().Get("environment_id")
+	unresolvedOnly := r.URL.Query().Get("unresolved") == "true"
+
 	if envIDStr == "" {
-		Error(w, http.StatusBadRequest, "environment_id query parameter required")
+		// Return all drift records across all environments
+		records, err := h.drifts.ListAll(r.Context(), unresolvedOnly)
+		if err != nil {
+			Error(w, http.StatusInternalServerError, "failed to list drift records")
+			return
+		}
+		JSON(w, http.StatusOK, records)
 		return
 	}
 
@@ -41,8 +49,6 @@ func (h *DriftHandler) List(w http.ResponseWriter, r *http.Request) {
 		Error(w, http.StatusBadRequest, "invalid environment_id")
 		return
 	}
-
-	unresolvedOnly := r.URL.Query().Get("unresolved") == "true"
 
 	records, err := h.drifts.ListByEnvironment(r.Context(), envID, unresolvedOnly)
 	if err != nil {

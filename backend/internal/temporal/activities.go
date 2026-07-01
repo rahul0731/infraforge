@@ -4,11 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// FailureRate is the probability (0.0 to 1.0) that a simulated failure occurs.
+// Set to 0.10 for a 10% failure rate during resource creation, updates, and drift detection.
+const FailureRate = 0.10
+
+// simulateFailure returns an error 10% of the time to mimic real-world infrastructure flakiness.
+func simulateFailure(operation string) error {
+	if rand.Float64() < FailureRate {
+		return fmt.Errorf("simulated failure: %s encountered a transient error (retryable)", operation)
+	}
+	return nil
+}
 
 // Activities holds shared dependencies for Temporal activities.
 type Activities struct {
@@ -156,6 +169,12 @@ func (a *Activities) CreateNetwork(ctx context.Context, input *StepInput) (*Step
 
 	time.Sleep(3 * time.Second)
 
+	// 10% failure simulation
+	if err := simulateFailure("network creation"); err != nil {
+		_ = a.failStep(ctx, stepID, err.Error())
+		return nil, err
+	}
+
 	output := map[string]interface{}{
 		"vpc_id":    fmt.Sprintf("vpc-%s", uuid.New().String()[:8]),
 		"subnet_ids": []string{"subnet-a", "subnet-b", "subnet-c"},
@@ -174,6 +193,12 @@ func (a *Activities) ProvisionCompute(ctx context.Context, input *StepInput) (*S
 	}
 
 	time.Sleep(5 * time.Second)
+
+	// 10% failure simulation
+	if err := simulateFailure("compute provisioning"); err != nil {
+		_ = a.failStep(ctx, stepID, err.Error())
+		return nil, err
+	}
 
 	output := map[string]interface{}{
 		"instance_count": 3,
@@ -214,6 +239,12 @@ func (a *Activities) DeployBaseServices(ctx context.Context, input *StepInput) (
 
 	time.Sleep(4 * time.Second)
 
+	// 10% failure simulation
+	if err := simulateFailure("base service deployment"); err != nil {
+		_ = a.failStep(ctx, stepID, err.Error())
+		return nil, err
+	}
+
 	output := map[string]interface{}{
 		"services_deployed": []string{"monitoring", "logging", "ingress-controller"},
 	}
@@ -232,8 +263,14 @@ func (a *Activities) RunHealthChecks(ctx context.Context, input *StepInput) (*St
 
 	time.Sleep(2 * time.Second)
 
+	// 10% failure simulation (drift detection / health check failure)
+	if err := simulateFailure("health check / drift detection"); err != nil {
+		_ = a.failStep(ctx, stepID, err.Error())
+		return nil, err
+	}
+
 	output := map[string]interface{}{
-		"healthy":     true,
+		"healthy":       true,
 		"checks_passed": 8,
 		"checks_total":  8,
 	}
@@ -269,13 +306,19 @@ func (a *Activities) FinalizeProvision(ctx context.Context, input *StepInput) (*
 		return nil, err
 	}
 
+	// Mark environment as active
+	if input.EnvironmentID != "" {
+		envID, _ := uuid.Parse(input.EnvironmentID)
+		_, _ = a.pool.Exec(ctx, `UPDATE environments SET status = 'active', updated_at = NOW() WHERE id = $1`, envID)
+	}
+
 	// Mark workflow as completed
 	if err := a.updateWorkflowStatus(ctx, input.WorkflowID, "completed"); err != nil {
 		_ = a.failStep(ctx, stepID, err.Error())
 		return nil, err
 	}
 
-	output := map[string]interface{}{"finalized": true}
+	output := map[string]interface{}{"finalized": true, "environment_status": "active"}
 	if err := a.completeStep(ctx, stepID, output); err != nil {
 		return nil, err
 	}
@@ -330,8 +373,14 @@ func (a *Activities) ApplyComputeChanges(ctx context.Context, input *StepInput) 
 
 	time.Sleep(4 * time.Second)
 
+	// 10% failure simulation
+	if err := simulateFailure("compute change application"); err != nil {
+		_ = a.failStep(ctx, stepID, err.Error())
+		return nil, err
+	}
+
 	output := map[string]interface{}{
-		"instances_updated": 3,
+		"instances_updated":  3,
 		"rollback_available": true,
 	}
 	if err := a.completeStep(ctx, stepID, output); err != nil {
@@ -349,8 +398,14 @@ func (a *Activities) UpdateDNSAndLB(ctx context.Context, input *StepInput) (*Ste
 
 	time.Sleep(2 * time.Second)
 
+	// 10% failure simulation
+	if err := simulateFailure("DNS/LB update"); err != nil {
+		_ = a.failStep(ctx, stepID, err.Error())
+		return nil, err
+	}
+
 	output := map[string]interface{}{
-		"dns_updated": true,
+		"dns_updated":      true,
 		"lb_rules_updated": true,
 	}
 	if err := a.completeStep(ctx, stepID, output); err != nil {
@@ -506,22 +561,50 @@ func (a *Activities) CleanupState(ctx context.Context, input *StepInput) (*StepO
 
 // --- Approval Gate Activity ---
 
-// RecordApprovalGate creates a step record for the approval gate.
+// RecordApprovalGate creates a step record for the approval gate and inserts an approval record.
 func (a *Activities) RecordApprovalGate(ctx context.Context, input *StepInput) (*StepOutput, error) {
 	stepID, err := a.createStep(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 
+	// Create an approval record in the database
+	wfID, _ := uuid.Parse(input.WorkflowID)
+	approvalID := uuid.New()
+	now := time.Now()
+	_, _ = a.pool.Exec(ctx, `
+		INSERT INTO approvals (id, workflow_id, workflow_step_id, requested_by, assigned_to, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, 'pending', $6, $6)`,
+		approvalID, wfID, stepID, input.Config["initiated_by"], "org-owner", now,
+	)
+
 	output := map[string]interface{}{
 		"waiting_for_approval": true,
 		"step_id":             stepID.String(),
+		"approval_id":        approvalID.String(),
+		"environment":        input.EnvironmentID,
+		"reason":             "Production environment requires approval before provisioning",
 	}
 	if err := a.completeStep(ctx, stepID, output); err != nil {
 		return nil, err
 	}
 
 	return &StepOutput{StepID: stepID.String(), Status: "completed", Output: output, Message: "Approval gate recorded, waiting for signal"}, nil
+}
+
+// MarkWorkflowFailed marks a workflow as failed with an error message.
+func (a *Activities) MarkWorkflowFailed(ctx context.Context, input *StepInput) (*StepOutput, error) {
+	errMsg := "workflow step failed"
+	if msg, ok := input.Config["error_message"].(string); ok {
+		errMsg = msg
+	}
+	wfID, _ := uuid.Parse(input.WorkflowID)
+	now := time.Now()
+	_, _ = a.pool.Exec(ctx,
+		`UPDATE workflows SET status = 'failed', error_message = $1, completed_at = $2, updated_at = $2 WHERE id = $3`,
+		errMsg, now, wfID,
+	)
+	return &StepOutput{Status: "completed", Message: "Workflow marked failed"}, nil
 }
 
 // MarkWorkflowRunning marks a workflow as running.

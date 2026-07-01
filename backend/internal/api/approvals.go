@@ -37,6 +37,7 @@ func NewApprovalHandler(
 // Register mounts approval routes on the given mux.
 func (h *ApprovalHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/approvals", h.ListPending)
+	mux.HandleFunc("GET /api/v1/approvals/history", h.ListHistory)
 	mux.HandleFunc("GET /api/v1/approvals/{id}", h.Get)
 	mux.HandleFunc("POST /api/v1/approvals/{id}/approve", h.Approve)
 	mux.HandleFunc("POST /api/v1/approvals/{id}/reject", h.Reject)
@@ -48,6 +49,15 @@ func (h *ApprovalHandler) ListPending(w http.ResponseWriter, r *http.Request) {
 	approvals, err := h.approvals.ListPending(r.Context(), assignedTo)
 	if err != nil {
 		Error(w, http.StatusInternalServerError, "failed to list approvals")
+		return
+	}
+	JSON(w, http.StatusOK, approvals)
+}
+
+func (h *ApprovalHandler) ListHistory(w http.ResponseWriter, r *http.Request) {
+	approvals, err := h.approvals.ListAll(r.Context(), 50)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, "failed to list approval history")
 		return
 	}
 	JSON(w, http.StatusOK, approvals)

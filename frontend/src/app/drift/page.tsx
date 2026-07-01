@@ -1,14 +1,15 @@
 "use client";
-import { useEffect, useState } from "react";
-import { fetchDriftRecords, resolveDrift, fetchEnvironments, fetchTeams } from "@/lib/api";
+import { useEffect, useState, useCallback } from "react";
+import { fetchAllDriftRecords, fetchDriftRecords, resolveDrift, fetchEnvironments, fetchTeams } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 
 export default function DriftPage() {
   const [records, setRecords] = useState<any[]>([]);
   const [environments, setEnvironments] = useState<any[]>([]);
-  const [selectedEnv, setSelectedEnv] = useState("");
-  const [showUnresolvedOnly, setShowUnresolvedOnly] = useState(true);
+  const [selectedEnv, setSelectedEnv] = useState("all");
+  const [showUnresolvedOnly, setShowUnresolvedOnly] = useState(false);
   const [loadingId, setLoadingId] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const [resolutions, setResolutions] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -16,43 +17,71 @@ export default function DriftPage() {
       if (teams?.length) {
         fetchEnvironments(teams[0].id).then((envs) => {
           setEnvironments(envs || []);
-          if (envs?.length) setSelectedEnv(envs[0].id);
         });
       }
     });
   }, []);
 
-  useEffect(() => {
-    if (!selectedEnv) return;
-    const load = () => fetchDriftRecords(selectedEnv, showUnresolvedOnly).then(setRecords).catch(console.error);
-    load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
+  const loadRecords = useCallback(async () => {
+    try {
+      let data: any[];
+      if (selectedEnv === "all") {
+        data = (await fetchAllDriftRecords(showUnresolvedOnly)) || [];
+      } else {
+        data = (await fetchDriftRecords(selectedEnv, showUnresolvedOnly)) || [];
+      }
+      setRecords(data);
+    } catch (e) { console.error(e); }
   }, [selectedEnv, showUnresolvedOnly]);
+
+  useEffect(() => {
+    loadRecords();
+    const interval = setInterval(loadRecords, 10000);
+    return () => clearInterval(interval);
+  }, [loadRecords]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadRecords();
+    setRefreshing(false);
+  };
 
   const handleResolve = async (id: string) => {
     const resolution = resolutions[id] || "manual_fix";
     setLoadingId(id);
     try {
       await resolveDrift(id, resolution);
-      setRecords((prev) => prev.filter((r) => r.id !== id));
+      await loadRecords();
     } catch (e) { console.error(e); }
     setLoadingId("");
   };
 
+  // Find environment name by ID
+  const getEnvName = (envId: string) => {
+    const env = environments.find((e) => e.id === envId);
+    return env?.name || envId.slice(0, 8);
+  };
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Infrastructure Drift</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Infrastructure Drift</h1>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="px-4 py-2 bg-dark-card border border-dark-border text-dark-text rounded-lg text-sm hover:bg-dark-border/80 disabled:opacity-50"
+        >
+          {refreshing ? "Refreshing..." : "Refresh"}
+        </button>
+      </div>
 
       {/* Explainer */}
       <div className="bg-dark-card border border-dark-border rounded-xl p-5">
         <h2 className="text-lg font-semibold mb-2">What is Drift?</h2>
         <p className="text-sm text-dark-muted leading-relaxed">
           Infrastructure drift occurs when the actual state of your cloud resources diverges from the
-          desired state defined in your Infrastructure-as-Code (Terraform, CloudFormation, etc.).
-          This can happen due to manual changes in the console, emergency hotfixes, auto-scaling events,
-          or third-party integrations modifying resources directly. Drift detection compares your expected
-          configuration against what is actually running and flags discrepancies.
+          desired state defined in your Infrastructure-as-Code. This can happen due to manual console changes,
+          emergency hotfixes, auto-scaling events, or third-party integrations modifying resources directly.
         </p>
       </div>
 
@@ -63,6 +92,7 @@ export default function DriftPage() {
           onChange={(e) => setSelectedEnv(e.target.value)}
           className="bg-dark-card border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent"
         >
+          <option value="all">All Environments</option>
           {environments.map((env) => (
             <option key={env.id} value={env.id}>{env.name}</option>
           ))}
@@ -76,12 +106,14 @@ export default function DriftPage() {
           />
           Unresolved only
         </label>
+        <span className="text-sm text-dark-muted ml-auto">
+          {records.length} record{records.length !== 1 ? "s" : ""}
+        </span>
       </div>
 
       {/* Records */}
       {records.length === 0 ? (
-        <div className="bg-dark-card border border-dark-border rounded-xl p-10 text-center">
-          <p className="text-4xl mb-3">🎉</p>
+        <div className="bg-dark-card border border-dark-border rounded-xl p-8 text-center">
           <p className="text-dark-muted">No drift detected. Your infrastructure matches desired state.</p>
         </div>
       ) : (
@@ -95,14 +127,16 @@ export default function DriftPage() {
                     <span className="text-dark-muted text-sm">/ {record.resource_id}</span>
                     <StatusBadge status={record.severity} />
                   </div>
-                  <p className="text-xs text-dark-muted mt-1">
-                    Detected: {new Date(record.drift_detected_at).toLocaleString()}
-                  </p>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-dark-muted">
+                    <span>Env: {getEnvName(record.environment_id)}</span>
+                    <span>Detected: {new Date(record.drift_detected_at).toLocaleString()}</span>
+                  </div>
                 </div>
                 {record.resolved_at && (
-                  <span className="text-xs text-emerald-400">
-                    Resolved: {record.resolution}
-                  </span>
+                  <div className="text-right">
+                    <StatusBadge status="completed" />
+                    <p className="text-xs text-dark-muted mt-1">{record.resolution}</p>
+                  </div>
                 )}
               </div>
 

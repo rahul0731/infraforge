@@ -115,3 +115,59 @@ func (r *DriftRepository) CountUnresolved(ctx context.Context, envID uuid.UUID) 
 	).Scan(&count)
 	return count, err
 }
+
+// ListAll returns all drift records across all environments.
+func (r *DriftRepository) ListAll(ctx context.Context, unresolvedOnly bool) ([]models.DriftRecord, error) {
+	var query string
+	if unresolvedOnly {
+		query = `SELECT id, environment_id, workflow_id, resource_type, resource_id,
+			expected_state, actual_state, drift_detected_at, resolved_at, resolution, severity,
+			created_at, updated_at
+			FROM drift_records WHERE resolved_at IS NULL ORDER BY drift_detected_at DESC LIMIT 100`
+	} else {
+		query = `SELECT id, environment_id, workflow_id, resource_type, resource_id,
+			expected_state, actual_state, drift_detected_at, resolved_at, resolution, severity,
+			created_at, updated_at
+			FROM drift_records ORDER BY drift_detected_at DESC LIMIT 100`
+	}
+
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("listing all drift records: %w", err)
+	}
+	defer rows.Close()
+
+	var records []models.DriftRecord
+	for rows.Next() {
+		var d models.DriftRecord
+		if err := rows.Scan(
+			&d.ID, &d.EnvironmentID, &d.WorkflowID, &d.ResourceType, &d.ResourceID,
+			&d.ExpectedState, &d.ActualState, &d.DriftDetectedAt, &d.ResolvedAt,
+			&d.Resolution, &d.Severity, &d.CreatedAt, &d.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning drift record: %w", err)
+		}
+		records = append(records, d)
+	}
+	return records, nil
+}
+
+// HasUnresolvedDrift checks if there's already an unresolved drift record for a given environment and resource type/id.
+func (r *DriftRepository) HasUnresolvedDrift(ctx context.Context, envID uuid.UUID, resourceType, resourceID string) (bool, error) {
+	var count int
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM drift_records WHERE environment_id = $1 AND resource_type = $2 AND resource_id = $3 AND resolved_at IS NULL`,
+		envID, resourceType, resourceID,
+	).Scan(&count)
+	return count > 0, err
+}
+
+// ResolveAllByEnvironment resolves all unresolved drift records for an environment.
+func (r *DriftRepository) ResolveAllByEnvironment(ctx context.Context, envID uuid.UUID, resolution string) error {
+	now := time.Now()
+	_, err := r.pool.Exec(ctx,
+		`UPDATE drift_records SET resolved_at = $1, resolution = $2, updated_at = NOW() WHERE environment_id = $3 AND resolved_at IS NULL`,
+		now, resolution, envID,
+	)
+	return err
+}

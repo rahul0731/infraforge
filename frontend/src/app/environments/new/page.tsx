@@ -31,7 +31,7 @@ export default function NewEnvironmentPage() {
     setError("");
     setLoading(true);
     try {
-      await createEnvironment(form.team_id, {
+      const result = await createEnvironment(form.team_id, {
         name: form.name,
         slug: form.slug || form.name.toLowerCase().replace(/\s+/g, "-"),
         provider: form.provider,
@@ -42,7 +42,9 @@ export default function NewEnvironmentPage() {
           instance_count: form.instance_count,
         },
       });
-      router.push("/environments");
+      // API returns { environment, workflow } — redirect to environment detail
+      const envId = result.environment?.id || result.id;
+      router.push(`/environments/${envId}`);
     } catch (err: any) {
       setError(err.message);
     } finally {

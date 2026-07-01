@@ -36,6 +36,8 @@ export const updateEnvironment = (id: string, data: any) =>
   request<any>(`${API_BASE}/environments/${id}`, { method: "PUT", headers: DEFAULT_HEADERS, body: JSON.stringify(data) });
 export const deleteEnvironment = (id: string) =>
   request<any>(`${API_BASE}/environments/${id}`, { method: "DELETE", headers: DEFAULT_HEADERS });
+export const decommissionEnvironment = (id: string) =>
+  request<any>(`${API_BASE}/environments/${id}/decommission`, { method: "POST", headers: DEFAULT_HEADERS });
 
 // Workflows
 export const fetchWorkflows = (teamId: string, status?: string) => {
@@ -58,6 +60,8 @@ export const fetchApprovals = (assignedTo?: string) => {
   const params = assignedTo ? `?assigned_to=${assignedTo}` : "";
   return request<any[]>(`${API_BASE}/approvals${params}`);
 };
+export const fetchApprovalHistory = () =>
+  request<any[]>(`${API_BASE}/approvals/history`);
 export const approveApproval = (id: string, reason?: string) =>
   request<any>(`${API_BASE}/approvals/${id}/approve`, { method: "POST", headers: DEFAULT_HEADERS, body: JSON.stringify({ reason }) });
 export const rejectApproval = (id: string, reason?: string) =>
@@ -66,6 +70,11 @@ export const rejectApproval = (id: string, reason?: string) =>
 // Drift
 export const fetchDriftRecords = (environmentId: string, unresolved?: boolean) => {
   const params = new URLSearchParams({ environment_id: environmentId });
+  if (unresolved) params.set("unresolved", "true");
+  return request<any[]>(`${API_BASE}/drift?${params}`);
+};
+export const fetchAllDriftRecords = (unresolved?: boolean) => {
+  const params = new URLSearchParams();
   if (unresolved) params.set("unresolved", "true");
   return request<any[]>(`${API_BASE}/drift?${params}`);
 };

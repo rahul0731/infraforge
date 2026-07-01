@@ -29,7 +29,7 @@ export default function EditEnvironmentPage() {
     setLoading(true);
     try {
       const config = { ...(typeof env.config === "object" ? env.config : {}), ...form };
-      await updateEnvironment(id, { config });
+      await updateEnvironment(id, { config: JSON.stringify(config) === "{}" ? config : config });
       router.push(`/environments/${id}`);
     } catch (err: any) {
       setError(err.message);

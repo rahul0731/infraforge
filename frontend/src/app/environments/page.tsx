@@ -16,7 +16,7 @@ export default function EnvironmentsPage() {
 
   useEffect(() => {
     if (!teamId) return;
-    const load = () => fetchEnvironments(teamId).then(setEnvironments).catch(console.error);
+    const load = () => fetchEnvironments(teamId).then((data) => setEnvironments(data || [])).catch(console.error);
     load();
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);

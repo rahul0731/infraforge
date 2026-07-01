@@ -50,6 +50,7 @@ func main() {
 
 	// Register activities
 	w.RegisterActivity(activities.MarkWorkflowRunning)
+	w.RegisterActivity(activities.MarkWorkflowFailed)
 	w.RegisterActivity(activities.ValidateEnvironment)
 	w.RegisterActivity(activities.TerraformPlan)
 	w.RegisterActivity(activities.RecordApprovalGate)

@@ -14,6 +14,7 @@ import (
 	"github.com/infraforge/infraforge/internal/api"
 	"github.com/infraforge/infraforge/internal/config"
 	"github.com/infraforge/infraforge/internal/db"
+	"github.com/infraforge/infraforge/internal/drift"
 	"github.com/infraforge/infraforge/internal/repository"
 	infraTemporal "github.com/infraforge/infraforge/internal/temporal"
 )
@@ -53,7 +54,7 @@ func main() {
 
 	// Initialize handlers
 	teamHandler := api.NewTeamHandler(teamRepo, auditRepo)
-	envHandler := api.NewEnvironmentHandler(envRepo, auditRepo)
+	envHandler := api.NewEnvironmentHandler(envRepo, workflowRepo, driftRepo, auditRepo, temporalClient)
 	workflowHandler := api.NewWorkflowHandler(workflowRepo, envRepo, auditRepo, temporalClient)
 	approvalHandler := api.NewApprovalHandler(approvalRepo, workflowRepo, auditRepo, temporalClient)
 	driftHandler := api.NewDriftHandler(driftRepo, auditRepo)
@@ -104,6 +105,12 @@ func main() {
 			log.Fatalf("HTTP server error: %v", err)
 		}
 	}()
+
+	// Start drift simulator
+	driftSimCtx, driftSimCancel := context.WithCancel(context.Background())
+	defer driftSimCancel()
+	driftSim := drift.NewSimulator(pool, driftRepo)
+	go driftSim.Start(driftSimCtx)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { fetchWorkflow, retryWorkflow, cancelWorkflow, signalWorkflow } from "@/lib/api";
+import { fetchWorkflow, retryWorkflow, cancelWorkflow } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import { useParams } from "next/navigation";
 
@@ -29,25 +29,11 @@ export default function WorkflowDetailPage() {
     setActionLoading("");
   };
 
-  const handleApprove = async () => {
-    setActionLoading("approve");
-    try { await signalWorkflow(id, { approved: true, reason: "Approved via UI" }); } catch (e) { console.error(e); }
-    setActionLoading("");
-  };
-
-  const handleReject = async () => {
-    setActionLoading("reject");
-    try { await signalWorkflow(id, { approved: false, reason: "Rejected via UI" }); } catch (e) { console.error(e); }
-    setActionLoading("");
-  };
-
   if (!workflow) return <div className="text-dark-muted">Loading...</div>;
 
   const steps = workflow.steps || [];
   const completedSteps = steps.filter((s: any) => s.status === "completed").length;
   const totalSteps = steps.length;
-  const isWaitingApproval = steps.some((s: any) => s.name === "approval_gate" && s.status === "completed") &&
-    workflow.status === "running" && steps.length < 10;
 
   return (
     <div className="space-y-6">
@@ -59,28 +45,16 @@ export default function WorkflowDetailPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {isWaitingApproval && (
-            <>
-              <button onClick={handleApprove} disabled={!!actionLoading}
-                className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:opacity-50">
-                {actionLoading === "approve" ? "..." : "✅ Approve"}
-              </button>
-              <button onClick={handleReject} disabled={!!actionLoading}
-                className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50">
-                {actionLoading === "reject" ? "..." : "❌ Reject"}
-              </button>
-            </>
-          )}
           {(workflow.status === "failed" || workflow.status === "cancelled") && (
             <button onClick={handleRetry} disabled={!!actionLoading}
               className="px-3 py-2 bg-dark-accent text-white rounded-lg text-sm hover:bg-indigo-600 disabled:opacity-50">
-              {actionLoading === "retry" ? "..." : "🔄 Retry"}
+              {actionLoading === "retry" ? "..." : "Retry"}
             </button>
           )}
           {(workflow.status === "pending" || workflow.status === "running") && (
             <button onClick={handleCancel} disabled={!!actionLoading}
               className="px-3 py-2 bg-dark-border text-dark-text rounded-lg text-sm hover:bg-dark-border/80 disabled:opacity-50">
-              {actionLoading === "cancel" ? "..." : "✋ Cancel"}
+              {actionLoading === "cancel" ? "..." : "Cancel"}
             </button>
           )}
         </div>
