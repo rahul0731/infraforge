@@ -340,3 +340,48 @@ infraforge/
 | **Drift as background goroutine** | Runs in the API server process, no extra deployment | In production this would be a separate scheduled Temporal workflow |
 | **Pre-trigger workflows on create/update** | User sees immediate feedback without manual "Deploy" click | Couples environment CRUD tightly to workflow orchestration |
 
+
+---
+
+## Why This Use Case
+
+Environment lifecycle management is one of the most impactful platform engineering problems. Every engineering team needs environments (dev, staging, production), and managing them manually leads to:
+
+- **Drift** — someone tweaks a setting in the console and it diverges from IaC
+- **No visibility** — teams don't know what step a provisioning is on or why it failed
+- **No guardrails** — production changes happen without approval
+- **No audit trail** — "who changed what and when?" is unanswerable
+
+InfraForge tackles all four by combining workflow orchestration (Temporal) with a clear UI that makes infrastructure operations transparent. The approval gate for production environments is a pattern used at every serious platform team — it's not theoretical.
+
+I chose this over simpler use cases (like a config manager or runbook runner) because it demonstrates real orchestration complexity: multi-step workflows, durable execution, signal-based human gates, failure recovery, and background drift detection — all things a platform engineer deals with daily.
+
+---
+
+## What I Would Build Next
+
+Given more time, here's what I'd prioritize:
+
+**Week 1 — Production Readiness**
+- Authentication & RBAC (OAuth2 + team-based permissions)
+- Real Terraform/Pulumi integration (replace simulated activities with actual IaC execution)
+- WebSocket or SSE for real-time updates (replace polling)
+- Proper error boundaries and toast notifications in the UI
+
+**Week 2 — Operational Maturity**
+- Scheduled drift detection as a Temporal cron workflow (instead of background goroutine)
+- Rollback workflows — automatically revert failed updates
+- Notification integrations (Slack/PagerDuty on failures, approval requests)
+- Environment templates — "click to clone staging as a new env"
+
+**Week 3 — Scale & Observability**
+- OpenTelemetry tracing across API → Temporal → activities
+- Cost estimation before provisioning (AWS Pricing API)
+- Multi-cloud support (GCP, Azure providers with real adapters)
+- Terraform state management (remote state, locking)
+
+**Week 4 — Developer Experience**
+- CLI tool (`infraforge env create --name prod --tier production`)
+- GitOps integration (environments defined in YAML, reconciled automatically)
+- Environment comparison (diff two environments' configs)
+- SWR/React Query for frontend data fetching with caching
