@@ -385,3 +385,10 @@ Given more time, here's what I'd prioritize:
 - GitOps integration (environments defined in YAML, reconciled automatically)
 - Environment comparison (diff two environments' configs)
 - SWR/React Query for frontend data fetching with caching
+
+## APP Screenshot
+<img width="1908" height="919" alt="Screenshot 2026-07-01 at 12 14 19 PM" src="https://github.com/user-attachments/assets/a08bf2f4-3844-4485-a610-54a591a2d4de" />
+<img width="1908" height="917" alt="Screenshot 2026-07-01 at 12 14 27 PM" src="https://github.com/user-attachments/assets/f841665e-4ee2-497f-8529-b52a44cbe8b8" />
+<img width="1911" height="899" alt="Screenshot 2026-07-01 at 12 14 50 PM" src="https://github.com/user-attachments/assets/01934db6-6734-417a-850d-d423767a4bf7" />
+<img width="1904" height="930" alt="Screenshot 2026-07-01 at 12 15 14 PM" src="https://github.com/user-attachments/assets/b6c2a73a-eb3e-49b5-8b22-8c452ee7c4cf" />
+
