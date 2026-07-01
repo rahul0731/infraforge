@@ -8,6 +8,12 @@ bin/
 # Go
 backend/vendor/
 
+# Node
+node_modules/
+.next/
+out/
+dist/
+
 # Environment
 .env
 .env.*
@@ -39,3 +45,15 @@ temporal-data/
 # Test coverage
 coverage.out
 coverage.html
+
+# Package lock (optional — remove this line if you want to track it)
+# package-lock.json
+
+# Build caches
+.cache/
+*.tsbuildinfo
+
+# Next.js
+frontend/.next/
+frontend/out/
+frontend/node_modules/

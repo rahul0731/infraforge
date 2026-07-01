@@ -33,6 +33,10 @@ worker: ## Run the Temporal worker locally
 tidy: ## Tidy Go modules
 	cd backend && go mod tidy
 
+# Frontend
+frontend: ## Run the Next.js frontend dev server
+	cd frontend && npm run dev
+
 # Database
 migrate: ## Run database migrations (applies SQL to running Postgres)
 	@echo "Applying migrations to PostgreSQL..."
